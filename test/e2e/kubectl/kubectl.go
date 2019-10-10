@@ -43,6 +43,7 @@ import (
 	openapi_v2 "github.com/googleapis/gnostic/OpenAPIv2"
 
 	v1 "k8s.io/api/core/v1"
+	discoveryv1alpha1 "k8s.io/api/discovery/v1alpha1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -51,6 +52,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
@@ -361,6 +363,104 @@ var _ = SIGDescribe("Kubectl client", func() {
 
 			ginkgo.By("validating guestbook app")
 			validateGuestbookApp(c, ns)
+		})
+	})
+
+	ginkgo.Describe("kubectl get output", func() {
+		ns := "testing-kubectl-get-output-" + rand.String(10)
+		objMeta := metav1.ObjectMeta{Name: ns}
+
+		ginkgo.BeforeEach(func() {
+			_, err := c.CoreV1().Namespaces().Create(&v1.Namespace{ObjectMeta: objMeta})
+			framework.ExpectNoError(err)
+
+			lists, err := c.Discovery().ServerPreferredResources()
+			framework.ExpectNoError(err)
+
+			if resourceEnabled(lists, "endpointslices") {
+				_, err := c.DiscoveryV1alpha1().EndpointSlices(ns).Create(&discoveryv1alpha1.EndpointSlice{ObjectMeta: objMeta})
+				framework.ExpectNoError(err, "Expected no error creating endpoint slice")
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			err := c.CoreV1().Namespaces().Delete(ns, &metav1.DeleteOptions{})
+			framework.ExpectNoError(err)
+
+			// If non-namespaced resources are created above, they must be
+			// deleted here.
+		})
+
+		ginkgo.It("should contain custom columns for each resource", func() {
+			ignoredResources := map[string]bool{
+				// ignored for intentionally using standard fields.
+				// This assumption is based on a lack of TableColumnDefinition
+				// in pkg/printers/internalversion/printers.go
+				"clusterroles": true,
+				"limitranges":  true,
+
+				// ignored temporarily while waiting for bug fix.
+				"componentstatuses":   true,
+				"clusterrolebindings": true,
+				"endpointslices":      true,
+
+				// ignored for no resources existing by default in cluster.
+				// Do not add anything to this list, instead add fixtures above
+				// in the BeforeEach and AfterEach.
+				// TODO: Add fixtures for these resources.
+				"podtemplates":                    true,
+				"replicationcontrollers":          true,
+				"events":                          true,
+				"persistentvolumeclaims":          true,
+				"persistentvolumes":               true,
+				"resourcequotas":                  true,
+				"mutatingwebhookconfigurations":   true,
+				"validatingwebhookconfigurations": true,
+				"customresourcedefinitions":       true,
+				"statefulsets":                    true,
+				"auditsinks":                      true,
+				"horizontalpodautoscalers":        true,
+				"cronjobs":                        true,
+				"jobs":                            true,
+				"certificatesigningrequests":      true,
+				"ingresses":                       true,
+				"networkpolicies":                 true,
+				"runtimeclasses":                  true,
+				"poddisruptionbudgets":            true,
+				"podsecuritypolicies":             true,
+				"scalingpolicies":                 true,
+				"podpresets":                      true,
+				"csidrivers":                      true,
+				"csinodes":                        true,
+				"volumeattachments":               true,
+				"volumesnapshotclasses":           true,
+				"volumesnapshotcontents":          true,
+				"volumesnapshots":                 true,
+			}
+
+			lists, err := c.Discovery().ServerPreferredResources()
+			framework.ExpectNoError(err)
+
+			for _, list := range lists {
+				for _, resource := range list.APIResources {
+					if !verbsContain(resource.Verbs, "get") || ignoredResources[resource.Name] || strings.HasPrefix(resource.Name, "e2e-test") {
+						continue
+					}
+
+					output := framework.RunKubectlOrDie("get", resource.Name, "--all-namespaces")
+					if output == "" {
+						framework.Failf("No stdout from kubectl get for %s (likely need to define test resources)", resource.Name)
+					}
+
+					splitOutput := strings.SplitN(output, "\n", 2)
+					fields := strings.Fields(splitOutput[0])
+					if resource.Namespaced {
+						framework.ExpectNotEqual(fields, []string{"NAMESPACE", "NAME", "CREATED", "AT"}, fmt.Sprintf("expected non-default fields for namespaced resource: %s", resource.Name))
+					} else {
+						framework.ExpectNotEqual(fields, []string{"NAME", "AGE"}, fmt.Sprintf("expected non-default fields for resource: %s", resource.Name))
+					}
+				}
+			}
 		})
 	})
 
@@ -2366,6 +2466,26 @@ func createApplyCustomResource(resource, namespace, name string, crd *crd.TestCr
 		return fmt.Errorf("failed to delete CR %s: %v", name, err)
 	}
 	return nil
+}
+
+func verbsContain(verbs metav1.Verbs, str string) bool {
+	for _, v := range verbs {
+		if v == str {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceEnabled(lists []*metav1.APIResourceList, resourceName string) bool {
+	for _, list := range lists {
+		for _, resource := range list.APIResources {
+			if resource.Name == resourceName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var schemaFoo = []byte(`description: Foo CRD for Testing
