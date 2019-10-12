@@ -43,10 +43,10 @@ import (
 	openapi_v2 "github.com/googleapis/gnostic/OpenAPIv2"
 
 	v1 "k8s.io/api/core/v1"
-	discoveryv1alpha1 "k8s.io/api/discovery/v1alpha1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -69,6 +69,7 @@ import (
 	e2eservice "k8s.io/kubernetes/test/e2e/framework/service"
 	"k8s.io/kubernetes/test/e2e/framework/testfiles"
 	"k8s.io/kubernetes/test/e2e/scheduling"
+	"k8s.io/kubernetes/test/integration/etcd"
 	testutils "k8s.io/kubernetes/test/utils"
 	"k8s.io/kubernetes/test/utils/crd"
 	imageutils "k8s.io/kubernetes/test/utils/image"
@@ -367,28 +368,17 @@ var _ = SIGDescribe("Kubectl client", func() {
 	})
 
 	ginkgo.Describe("kubectl get output", func() {
-		ns := "testing-kubectl-get-output-" + rand.String(10)
-		objMeta := metav1.ObjectMeta{Name: ns}
+		var ns string
 
 		ginkgo.BeforeEach(func() {
-			_, err := c.CoreV1().Namespaces().Create(&v1.Namespace{ObjectMeta: objMeta})
+			ns = "testing-kubectl-get-output-" + rand.String(10)
+			_, err := c.CoreV1().Namespaces().Create(&v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 			framework.ExpectNoError(err)
-
-			lists, err := c.Discovery().ServerPreferredResources()
-			framework.ExpectNoError(err)
-
-			if resourceEnabled(lists, "endpointslices") {
-				_, err := c.DiscoveryV1alpha1().EndpointSlices(ns).Create(&discoveryv1alpha1.EndpointSlice{ObjectMeta: objMeta})
-				framework.ExpectNoError(err, "Expected no error creating endpoint slice")
-			}
 		})
 
 		ginkgo.AfterEach(func() {
 			err := c.CoreV1().Namespaces().Delete(ns, &metav1.DeleteOptions{})
 			framework.ExpectNoError(err)
-
-			// If non-namespaced resources are created above, they must be
-			// deleted here.
 		})
 
 		ginkgo.It("should contain custom columns for each resource", func() {
@@ -408,45 +398,72 @@ var _ = SIGDescribe("Kubectl client", func() {
 				// Do not add anything to this list, instead add fixtures above
 				// in the BeforeEach and AfterEach.
 				// TODO: Add fixtures for these resources.
-				"podtemplates":                    true,
-				"replicationcontrollers":          true,
-				"events":                          true,
-				"persistentvolumeclaims":          true,
-				"persistentvolumes":               true,
-				"resourcequotas":                  true,
-				"mutatingwebhookconfigurations":   true,
-				"validatingwebhookconfigurations": true,
-				"customresourcedefinitions":       true,
-				"statefulsets":                    true,
-				"auditsinks":                      true,
-				"horizontalpodautoscalers":        true,
-				"cronjobs":                        true,
-				"jobs":                            true,
-				"certificatesigningrequests":      true,
-				"ingresses":                       true,
-				"networkpolicies":                 true,
-				"runtimeclasses":                  true,
-				"poddisruptionbudgets":            true,
-				"podsecuritypolicies":             true,
-				"scalingpolicies":                 true,
-				"podpresets":                      true,
-				"csidrivers":                      true,
-				"csinodes":                        true,
-				"volumeattachments":               true,
-				"volumesnapshotclasses":           true,
-				"volumesnapshotcontents":          true,
-				"volumesnapshots":                 true,
+				//"podtemplates":                    true,
+				//"replicationcontrollers":          true,
+				//"events":                          true,
+				//"persistentvolumeclaims":          true,
+				//"persistentvolumes":               true,
+				//"resourcequotas":                  true,
+				//"mutatingwebhookconfigurations":   true,
+				//"validatingwebhookconfigurations": true,
+				//"customresourcedefinitions":       true,
+				//"statefulsets":                    true,
+				//"auditsinks":                      true,
+				//"horizontalpodautoscalers":        true,
+				//"cronjobs":                        true,
+				//"jobs":                            true,
+				//"certificatesigningrequests":      true,
+				//"ingresses":                       true,
+				//"networkpolicies":                 true,
+				//"runtimeclasses":                  true,
+				//"poddisruptionbudgets":            true,
+				//"podsecuritypolicies":             true,
+				//"scalingpolicies":                 true,
+				//"podpresets":                      true,
+				//"csidrivers":                      true,
+				//"csinodes":                        true,
+				//"volumeattachments":               true,
+				//"volumesnapshotclasses":           true,
+				//"volumesnapshotcontents":          true,
+				//"volumesnapshots":                 true,
 			}
 
-			lists, err := c.Discovery().ServerPreferredResources()
+			apiGroups, err := c.Discovery().ServerPreferredResources()
 			framework.ExpectNoError(err)
 
-			for _, list := range lists {
-				for _, resource := range list.APIResources {
+			testableResources := etcd.GetEtcdStorageDataForNamespace(ns)
+
+			for _, group := range apiGroups {
+				for _, resource := range group.APIResources {
 					if !verbsContain(resource.Verbs, "get") || ignoredResources[resource.Name] || strings.HasPrefix(resource.Name, "e2e-test") {
 						continue
 					}
 
+					// compute gvr
+					gv, err := schema.ParseGroupVersion(group.GroupVersion)
+					framework.ExpectNoError(err)
+					gvr := gv.WithResource(resource.Name)
+
+					// assert test data exists
+					testData := testableResources[gvr]
+					gomega.ExpectWithOffset(1, testData).ToNot(gomega.BeZero(), "No test data available for %s", gvr)
+
+					// create test resource
+					mapping := &meta.RESTMapping{
+						Resource:         gvr,
+						GroupVersionKind: gv.WithKind(resource.Kind),
+					}
+					if resource.Namespaced {
+						mapping.Scope = meta.RESTScopeNamespace
+					} else {
+						mapping.Scope = meta.RESTScopeRoot
+					}
+					client, obj, err := etcd.JSONToUnstructured(testData.Stub, ns , mapping, f.DynamicClient)
+					framework.ExpectNoError(err)
+					_, err = client.Create(obj, metav1.CreateOptions{})
+					framework.ExpectNoError(err)
+
+					// get test resource
 					output := framework.RunKubectlOrDie("get", resource.Name, "--all-namespaces")
 					if output == "" {
 						framework.Failf("No stdout from kubectl get for %s (likely need to define test resources)", resource.Name)
