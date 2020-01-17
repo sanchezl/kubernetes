@@ -2,7 +2,9 @@ package usercache
 
 import (
 	"fmt"
+	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 
 	userapi "github.com/openshift/api/user/v1"
@@ -13,6 +15,7 @@ import (
 // Once we work out a cleaner way to extend a lister, this should live there.
 type GroupCache struct {
 	indexer cache.Indexer
+	groupsSynced cache.InformerSynced
 }
 
 const ByUserIndexName = "ByUser"
@@ -31,10 +34,17 @@ func ByUserIndexKeys(obj interface{}) ([]string, error) {
 func NewGroupCache(groupInformer userinformer.GroupInformer) *GroupCache {
 	return &GroupCache{
 		indexer: groupInformer.Informer().GetIndexer(),
+		groupsSynced: groupInformer.Informer().HasSynced,
 	}
 }
 
 func (c *GroupCache) GroupsFor(username string) ([]*userapi.Group, error) {
+	err := wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+		return c.groupsSynced(), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("groups.user.openshift.io cache is not synchronized: %v", err)
+	}
 	objs, err := c.indexer.ByIndex(ByUserIndexName, username)
 	if err != nil {
 		return nil, err
