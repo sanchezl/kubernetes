@@ -2,6 +2,8 @@ package openshiftkubeapiserver
 
 import (
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -35,6 +37,9 @@ func BuildHandlerChain(consolePublicURL string, oauthMetadataFile string) (func(
 
 			// redirects from / and /console to consolePublicURL if you're using a browser
 			handler = withConsoleRedirect(handler, consolePublicURL)
+
+			// proxies from /metrics/check-endpoints to /metrics on check-endpoints process
+			handler = withCheckEndpointsMetrics(handler)
 
 			return handler
 		},
@@ -93,5 +98,27 @@ func translateLegacyScopeImpersonation(handler http.Handler) http.Handler {
 		}
 
 		handler.ServeHTTP(w, req)
+	})
+}
+
+func withCheckEndpointsMetrics(handler http.Handler) http.Handler {
+	url, err := url.Parse("https://localhost:17697/metrics")
+	if err != nil {
+		return handler
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig.InsecureSkipVerify = true
+	reverseProxy := httputil.ReverseProxy{
+		Director: func(request *http.Request) {
+			request.URL = url
+		},
+		Transport: transport,
+	}
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/metrics/check-endpoints" {
+			reverseProxy.ServeHTTP(response, request)
+			return
+		}
+		handler.ServeHTTP(response, request)
 	})
 }
