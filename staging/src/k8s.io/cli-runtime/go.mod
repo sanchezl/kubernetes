@@ -29,6 +29,8 @@ replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 	github.com/mattn/go-colorable => github.com/mattn/go-colorable v0.0.9
 	github.com/onsi/ginkgo => github.com/openshift/ginkgo v4.5.0-origin.1+incompatible
+	github.com/openshift/api => github.com/sanchezl/api v0.0.0-20210222165532-3c943607d192
+	github.com/openshift/client-go => github.com/sanchezl/client-go v0.0.0-20210222172706-71b4c2c5025b
 	github.com/robfig/cron => github.com/robfig/cron v1.1.0
 	go.uber.org/multierr => go.uber.org/multierr v1.1.0
 	gopkg.in/yaml.v2 => gopkg.in/yaml.v2 v2.2.8

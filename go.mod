@@ -74,9 +74,9 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/runc v1.0.0-rc92
 	github.com/opencontainers/selinux v1.6.0
-	github.com/openshift/api v0.0.0-20201214114959-164a2fb63b5f
+	github.com/openshift/api v0.0.0-20210222165532-3c943607d192
 	github.com/openshift/apiserver-library-go v0.0.0-20210216185127-6e5216cd541f
-	github.com/openshift/client-go v0.0.0-20201214125552-e615e336eb49
+	github.com/openshift/client-go v0.0.0-20210222172706-71b4c2c5025b
 	github.com/openshift/library-go v0.0.0-20201214135256-d265f469e75b
 	github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib v1.0.0
@@ -401,10 +401,10 @@ replace (
 	github.com/opencontainers/runc => github.com/opencontainers/runc v1.0.0-rc92
 	github.com/opencontainers/runtime-spec => github.com/opencontainers/runtime-spec v1.0.3-0.20200728170252-4d89ac9fbff6
 	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.6.0
-	github.com/openshift/api => github.com/sanchezl/api deprecatedapirequest
+	github.com/openshift/api => github.com/sanchezl/api v0.0.0-20210222165532-3c943607d192
 	github.com/openshift/apiserver-library-go => github.com/openshift/apiserver-library-go v0.0.0-20210216185127-6e5216cd541f
 	github.com/openshift/build-machinery-go => github.com/openshift/build-machinery-go v0.0.0-20200917070002-f171684f77ab
-	github.com/openshift/client-go => github.com/sanchezl/client-go deprecatedapirequest
+	github.com/openshift/client-go => github.com/sanchezl/client-go v0.0.0-20210222172706-71b4c2c5025b
 	github.com/openshift/library-go => github.com/openshift/library-go v0.0.0-20201214135256-d265f469e75b
 	github.com/pascaldekloe/goe => github.com/pascaldekloe/goe v0.0.0-20180627143212-57f6aae5913c
 	github.com/pelletier/go-toml => github.com/pelletier/go-toml v1.2.0
