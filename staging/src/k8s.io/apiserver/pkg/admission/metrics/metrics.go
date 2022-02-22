@@ -180,7 +180,7 @@ func newAdmissionMetrics() *AdmissionMetrics {
 				Buckets:        []float64{0.005, 0.025, 0.1, 0.5, 1.0, 2.5},
 				StabilityLevel: metrics.STABLE,
 			},
-			[]string{"name", "type", "operation", "rejected"},
+			[]string{"name", "type", "operation", "rejected", "group", "version", "resource", "subresource"},
 		),
 
 		latenciesSummary: nil,
@@ -237,7 +237,7 @@ func (m *AdmissionMetrics) ObserveWebhook(ctx context.Context, name string, elap
 		code = 600
 	}
 	m.webhookRequest.WithContext(ctx).WithLabelValues(name, stepType, string(attr.GetOperation()), strconv.Itoa(code), strconv.FormatBool(rejected)).Inc()
-	m.webhook.observe(ctx, elapsed, name, stepType, string(attr.GetOperation()), strconv.FormatBool(rejected))
+	m.webhook.observe(ctx, elapsed, name, stepType, string(attr.GetOperation()), strconv.FormatBool(rejected), attr.GetResource().Group, attr.GetResource().Version, attr.GetResource().Resource, attr.GetSubresource())
 }
 
 // ObserveWebhookRejection records admission related metrics for an admission webhook rejection.

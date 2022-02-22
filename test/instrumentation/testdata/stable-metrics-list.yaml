@@ -176,10 +176,15 @@
   type: Histogram
   stabilityLevel: STABLE
   labels:
+  - group
   - name
+  - ns
   - operation
   - rejected
+  - resource
+  - subresource
   - type
+  - version
   buckets:
   - 0.005
   - 0.025
