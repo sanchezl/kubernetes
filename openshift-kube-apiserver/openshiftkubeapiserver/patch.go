@@ -22,12 +22,15 @@ import (
 	"github.com/openshift/library-go/pkg/apiserver/apiserverconfig"
 	"github.com/openshift/library-go/pkg/quota/clusterquotamapping"
 	"k8s.io/apiserver/pkg/admission"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/mutating"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/validating"
 	"k8s.io/apiserver/pkg/quota/v1/generic"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	clientgoinformers "k8s.io/client-go/informers"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/kubernetes/openshift-kube-apiserver/admission/admissionenablement/webhookmetrics"
 	"k8s.io/kubernetes/openshift-kube-apiserver/admission/authorization/restrictusers"
 	"k8s.io/kubernetes/openshift-kube-apiserver/admission/authorization/restrictusers/usercache"
 	"k8s.io/kubernetes/openshift-kube-apiserver/admission/autoscaling/managementcpusoverride"
@@ -77,6 +80,7 @@ func OpenShiftKubeAPIServerConfigPatch(genericConfig *genericapiserver.Config, k
 		nodeenv.NewInitializer(enablement.OpenshiftConfig().ProjectConfig.DefaultNodeSelector),
 		admissionrestconfig.NewInitializer(*rest.CopyConfig(genericConfig.LoopbackClientConfig)),
 		managementcpusoverride.NewInitializer(openshiftInformers.getOpenshiftInfraInformers().Config().V1().Infrastructures()),
+		webhookmetrics.NewInitializer(),
 	)
 	// END ADMISSION
 
@@ -207,3 +211,9 @@ func (i *kubeAPIServerInformers) Start(stopCh <-chan struct{}) {
 func newClusterQuotaMappingController(nsInternalInformer corev1informers.NamespaceInformer, clusterQuotaInformer quotav1informer.ClusterResourceQuotaInformer) *clusterquotamapping.ClusterQuotaMappingController {
 	return clusterquotamapping.NewClusterQuotaMappingController(nsInternalInformer, clusterQuotaInformer)
 }
+
+var mutatingWebhookInvokerDecorator = mutating.WebhookInvokerDecorators{
+	mutating.MetricsDecorator,
+}
+
+var validatingWebhookInvokerDecorator = validating.WebhookInvokerDecorators{}
