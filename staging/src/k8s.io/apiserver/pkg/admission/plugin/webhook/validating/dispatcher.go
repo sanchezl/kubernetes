@@ -22,12 +22,11 @@ import (
 	"sync"
 	"time"
 
-	v1 "k8s.io/api/admissionregistration/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/admission"
-	admissionmetrics "k8s.io/apiserver/pkg/admission/metrics"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook"
 	webhookerrors "k8s.io/apiserver/pkg/admission/plugin/webhook/errors"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
@@ -49,14 +48,27 @@ const (
 	ValidatingAuditAnnotationFailedOpenKeyPrefix = "failed-open." + ValidatingAuditAnnotationPrefix
 )
 
+// WebhookInvoker invokes a validating webhook.
+type WebhookInvoker func(ctx context.Context, hook *admissionregistrationv1.ValidatingWebhook, invocation *generic.WebhookInvocation, attr *generic.VersionedAttributes) error
+
 type validatingDispatcher struct {
 	cm     *webhookutil.ClientManager
 	plugin *Plugin
+	invoke WebhookInvoker
 }
 
-func newValidatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
+// newDispatcher returns a dispatcher. The cm field must still be initialized before use.
+func newDispatcher(p *Plugin) *validatingDispatcher {
+	d := &validatingDispatcher{plugin: p}
+	d.invoke = d.callHook
+	return d
+}
+
+// newDispatcherFactory returns a dispatcher factory for use by the generic.WebHook.
+func newDispatcherFactory(d *validatingDispatcher) func(cm *webhookutil.ClientManager) generic.Dispatcher {
 	return func(cm *webhookutil.ClientManager) generic.Dispatcher {
-		return &validatingDispatcher{cm, p}
+		d.cm = cm
+		return d
 	}
 }
 
@@ -107,36 +119,17 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 			defer wg.Done()
 			hook, ok := invocation.Webhook.GetValidatingWebhook()
 			if !ok {
-				utilruntime.HandleError(fmt.Errorf("validating webhook dispatch requires v1.ValidatingWebhook, but got %T", hook))
+				utilruntime.HandleError(fmt.Errorf("validating webhook dispatch requires admissionregistrationv1.ValidatingWebhook, but got %T", hook))
 				return
 			}
 			versionedAttr := versionedAttrs[invocation.Kind]
-			t := time.Now()
-			err := d.callHook(ctx, hook, invocation, versionedAttr)
-			ignoreClientCallFailures := hook.FailurePolicy != nil && *hook.FailurePolicy == v1.Ignore
-			rejected := false
-			if err != nil {
-				switch err := err.(type) {
-				case *webhookutil.ErrCallingWebhook:
-					if !ignoreClientCallFailures {
-						rejected = true
-						admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionCallingWebhookError, int(err.Status.ErrStatus.Code))
-					}
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
-				case *webhookutil.ErrWebhookRejection:
-					rejected = true
-					admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionNoError, int(err.Status.ErrStatus.Code))
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
-				default:
-					rejected = true
-					admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionAPIServerInternalError, 0)
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 0)
-				}
-			} else {
-				admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 200)
+
+			err := d.invoke(ctx, hook, invocation, versionedAttr)
+			if err == nil {
 				return
 			}
 
+			ignoreClientCallFailures := hook.FailurePolicy != nil && *hook.FailurePolicy == admissionregistrationv1.Ignore
 			if callErr, ok := err.(*webhookutil.ErrCallingWebhook); ok {
 				if ignoreClientCallFailures {
 					klog.Warningf("Failed calling webhook, failing open %v: %v", hook.Name, callErr)
@@ -181,12 +174,12 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 	return errs[0]
 }
 
-func (d *validatingDispatcher) callHook(ctx context.Context, h *v1.ValidatingWebhook, invocation *generic.WebhookInvocation, attr *generic.VersionedAttributes) error {
+func (d *validatingDispatcher) callHook(ctx context.Context, h *admissionregistrationv1.ValidatingWebhook, invocation *generic.WebhookInvocation, attr *generic.VersionedAttributes) error {
 	if attr.Attributes.IsDryRun() {
 		if h.SideEffects == nil {
 			return &webhookutil.ErrCallingWebhook{WebhookName: h.Name, Reason: fmt.Errorf("Webhook SideEffects is nil"), Status: apierrors.NewBadRequest("Webhook SideEffects is nil")}
 		}
-		if !(*h.SideEffects == v1.SideEffectClassNone || *h.SideEffects == v1.SideEffectClassNoneOnDryRun) {
+		if !(*h.SideEffects == admissionregistrationv1.SideEffectClassNone || *h.SideEffects == admissionregistrationv1.SideEffectClassNoneOnDryRun) {
 			return webhookerrors.NewDryRunUnsupportedErr(h.Name)
 		}
 	}

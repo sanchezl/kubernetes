@@ -45,6 +45,7 @@ func Register(plugins *admission.Plugins) {
 // Plugin is an implementation of admission.Interface.
 type Plugin struct {
 	*generic.Webhook
+	dispatcher *validatingDispatcher
 }
 
 var _ admission.ValidationInterface = &Plugin{}
@@ -53,8 +54,10 @@ var _ admission.ValidationInterface = &Plugin{}
 func NewValidatingAdmissionWebhook(configFile io.Reader) (*Plugin, error) {
 	handler := admission.NewHandler(admission.Connect, admission.Create, admission.Delete, admission.Update)
 	p := &Plugin{}
+	// we need save this reference to the dispatcher, so we can later wrap its invoker
+	p.dispatcher = newDispatcher(p)
 	var err error
-	p.Webhook, err = generic.NewWebhook(handler, configFile, configuration.NewValidatingWebhookConfigurationManager, newValidatingDispatcher(p))
+	p.Webhook, err = generic.NewWebhook(handler, configFile, configuration.NewValidatingWebhookConfigurationManager, newDispatcherFactory(p.dispatcher))
 	if err != nil {
 		return nil, err
 	}
@@ -64,4 +67,9 @@ func NewValidatingAdmissionWebhook(configFile io.Reader) (*Plugin, error) {
 // Validate makes an admission decision based on the request attributes.
 func (a *Plugin) Validate(ctx context.Context, attr admission.Attributes, o admission.ObjectInterfaces) error {
 	return a.Webhook.Dispatch(ctx, attr, o)
+}
+
+// AppendWebhookInvokerDecorator appends a webhook invoker decorator.
+func (a *Plugin) AppendWebhookInvokerDecorator(decorator WebhookInvokerDecorator) {
+	a.dispatcher.invoke = decorator.Decorate(a.dispatcher.invoke)
 }

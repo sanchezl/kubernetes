@@ -45,6 +45,7 @@ func Register(plugins *admission.Plugins) {
 // Plugin is an implementation of admission.Interface.
 type Plugin struct {
 	*generic.Webhook
+	dispatcher *mutatingDispatcher
 }
 
 var _ admission.MutationInterface = &Plugin{}
@@ -53,12 +54,13 @@ var _ admission.MutationInterface = &Plugin{}
 func NewMutatingWebhook(configFile io.Reader) (*Plugin, error) {
 	handler := admission.NewHandler(admission.Connect, admission.Create, admission.Delete, admission.Update)
 	p := &Plugin{}
+	// we need save this reference to the dispatcher, so we can later wrap its invoker
+	p.dispatcher = newDispatcher(p)
 	var err error
-	p.Webhook, err = generic.NewWebhook(handler, configFile, configuration.NewMutatingWebhookConfigurationManager, newMutatingDispatcher(p))
+	p.Webhook, err = generic.NewWebhook(handler, configFile, configuration.NewMutatingWebhookConfigurationManager, newDispatcherFactory(p.dispatcher))
 	if err != nil {
 		return nil, err
 	}
-
 	return p, nil
 }
 
@@ -73,4 +75,9 @@ func (a *Plugin) ValidateInitialization() error {
 // Admit makes an admission decision based on the request attributes.
 func (a *Plugin) Admit(ctx context.Context, attr admission.Attributes, o admission.ObjectInterfaces) error {
 	return a.Webhook.Dispatch(ctx, attr, o)
+}
+
+// AppendWebhookInvokerDecorator appends a webhook invoker decorator.
+func (a *Plugin) AppendWebhookInvokerDecorator(decorator WebhookInvokerDecorator) {
+	a.dispatcher.invoke = decorator.Decorate(a.dispatcher.invoke)
 }

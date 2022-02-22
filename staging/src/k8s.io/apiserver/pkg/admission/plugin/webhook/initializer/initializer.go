@@ -20,6 +20,8 @@ import (
 	"net/url"
 
 	"k8s.io/apiserver/pkg/admission"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/mutating"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/validating"
 	"k8s.io/apiserver/pkg/util/webhook"
 )
 
@@ -42,10 +44,24 @@ type WantsAuthenticationInfoResolverWrapper interface {
 	admission.InitializationValidator
 }
 
+// WantsMutatingWebhookInvokerDecorator is implemented by initializer plugins that
+// wish to provide the ability to decorate call made to mutating admission webhooks.
+type WantsMutatingWebhookInvokerDecorator interface {
+	AppendWebhookInvokerDecorator(decorator mutating.WebhookInvokerDecorator)
+}
+
+// WantsValidatingWebhookInvokerDecorator is implemented by initializer plugins that
+// wish to provide the ability to decorate call made to validating admission webhooks.
+type WantsValidatingWebhookInvokerDecorator interface {
+	AppendWebhookInvokerDecorator(decorator validating.WebhookInvokerDecorator)
+}
+
 // PluginInitializer is used for initialization of the webhook admission plugin.
 type PluginInitializer struct {
 	serviceResolver                   webhook.ServiceResolver
 	authenticationInfoResolverWrapper webhook.AuthenticationInfoResolverWrapper
+	mutatingWebhookInvokerDecorator   mutating.WebhookInvokerDecorator
+	validatingWebhookInvokerDecorator validating.WebhookInvokerDecorator
 }
 
 var _ admission.PluginInitializer = &PluginInitializer{}
@@ -58,6 +74,8 @@ func NewPluginInitializer(
 	return &PluginInitializer{
 		authenticationInfoResolverWrapper: authenticationInfoResolverWrapper,
 		serviceResolver:                   serviceResolver,
+		mutatingWebhookInvokerDecorator:   mutating.MetricsDecorator,
+		validatingWebhookInvokerDecorator: validating.MetricsDecorator,
 	}
 }
 
@@ -72,5 +90,13 @@ func (i *PluginInitializer) Initialize(plugin admission.Interface) {
 		if i.authenticationInfoResolverWrapper != nil {
 			wants.SetAuthenticationInfoResolverWrapper(i.authenticationInfoResolverWrapper)
 		}
+	}
+
+	if wants, ok := plugin.(WantsMutatingWebhookInvokerDecorator); ok {
+		wants.AppendWebhookInvokerDecorator(i.mutatingWebhookInvokerDecorator)
+	}
+
+	if wants, ok := plugin.(WantsValidatingWebhookInvokerDecorator); ok {
+		wants.AppendWebhookInvokerDecorator(i.validatingWebhookInvokerDecorator)
 	}
 }
