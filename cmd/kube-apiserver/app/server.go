@@ -145,6 +145,12 @@ cluster's shared state through which all other components interact.`,
 				}
 				enablement.ForceOpenShift(openshiftConfig)
 
+				// modify admission webhook configuration for openshift
+				err = admissionenablement.ExpandCardinalityOfAdmissionWebhookDurationMetrics(openshiftConfig)
+				if err != nil {
+					klog.Fatal(err)
+				}
+
 				args, err := openshiftkubeapiserver.ConfigToFlags(openshiftConfig)
 				if err != nil {
 					return err
