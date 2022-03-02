@@ -24,6 +24,7 @@ import (
 	"time"
 
 	jsonpatch "github.com/evanphx/json-patch"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/klog/v2"
@@ -55,9 +56,9 @@ const (
 	// Since mutating webhook patches the request body, audit level must be greater or equal to Request
 	// for the annotation to be logged
 	PatchAuditAnnotationPrefix = "patch.webhook.admission.k8s.io/"
-	// MutationAuditAnnotationPrefix is a prefix for presisting webhook mutation existence in audit annotation.
+	// MutationAuditAnnotationPrefix is a prefix for persisting webhook mutation existence in audit annotation.
 	MutationAuditAnnotationPrefix = "mutation.webhook.admission.k8s.io/"
-	// MutationAnnotationFailedOpenKeyPrefix in an annotation indicates
+	// MutationAuditAnnotationFailedOpenKeyPrefix in an annotation indicates
 	// the mutating webhook failed open when the webhook backend connection
 	// failed or returned an internal server error.
 	MutationAuditAnnotationFailedOpenKeyPrefix string = "failed-open." + MutationAuditAnnotationPrefix
@@ -66,11 +67,12 @@ const (
 type mutatingDispatcher struct {
 	cm     *webhookutil.ClientManager
 	plugin *Plugin
+	filter []webhookadmission.Rule
 }
 
-func newMutatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
-	return func(cm *webhookutil.ClientManager) generic.Dispatcher {
-		return &mutatingDispatcher{cm, p}
+func newMutatingDispatcher(p *Plugin) func(config *webhookadmission.WebhookAdmission, cm *webhookutil.ClientManager) generic.Dispatcher {
+	return func(config *webhookadmission.WebhookAdmission, cm *webhookutil.ClientManager) generic.Dispatcher {
+		return &mutatingDispatcher{cm: cm, plugin: p, filter: config.Metrics.Duration.IncludeResourceLabelsFor}
 	}
 }
 
@@ -150,18 +152,18 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 					rejected = true
 					admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "admit", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionCallingWebhookError, int(err.Status.ErrStatus.Code))
 				}
-				admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", int(err.Status.ErrStatus.Code))
+				admissionmetrics.Metrics.ObserveWebhook(ctx, a.filter, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", int(err.Status.ErrStatus.Code))
 			case *webhookutil.ErrWebhookRejection:
 				rejected = true
 				admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "admit", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionNoError, int(err.Status.ErrStatus.Code))
-				admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", int(err.Status.ErrStatus.Code))
+				admissionmetrics.Metrics.ObserveWebhook(ctx, a.filter, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", int(err.Status.ErrStatus.Code))
 			default:
 				rejected = true
 				admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "admit", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionAPIServerInternalError, 0)
-				admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", 0)
+				admissionmetrics.Metrics.ObserveWebhook(ctx, a.filter, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", 0)
 			}
 		} else {
-			admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", 200)
+			admissionmetrics.Metrics.ObserveWebhook(ctx, a.filter, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "admit", 200)
 		}
 		if changed {
 			// Patch had changed the object. Prepare to reinvoke all previous webhooks that are eligible for re-invocation.

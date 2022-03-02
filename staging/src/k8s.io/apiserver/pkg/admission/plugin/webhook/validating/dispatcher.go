@@ -29,6 +29,7 @@ import (
 	"k8s.io/apiserver/pkg/admission"
 	admissionmetrics "k8s.io/apiserver/pkg/admission/metrics"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission"
 	webhookerrors "k8s.io/apiserver/pkg/admission/plugin/webhook/errors"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
 	webhookrequest "k8s.io/apiserver/pkg/admission/plugin/webhook/request"
@@ -50,13 +51,14 @@ const (
 )
 
 type validatingDispatcher struct {
-	cm     *webhookutil.ClientManager
-	plugin *Plugin
+	cm      *webhookutil.ClientManager
+	plugin  *Plugin
+	filters []webhookadmission.Rule
 }
 
-func newValidatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
-	return func(cm *webhookutil.ClientManager) generic.Dispatcher {
-		return &validatingDispatcher{cm, p}
+func newValidatingDispatcher(p *Plugin) func(config *webhookadmission.WebhookAdmission, cm *webhookutil.ClientManager) generic.Dispatcher {
+	return func(config *webhookadmission.WebhookAdmission, cm *webhookutil.ClientManager) generic.Dispatcher {
+		return &validatingDispatcher{cm: cm, plugin: p, filters: config.Metrics.Duration.IncludeResourceLabelsFor}
 	}
 }
 
@@ -122,18 +124,18 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 						rejected = true
 						admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionCallingWebhookError, int(err.Status.ErrStatus.Code))
 					}
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
+					admissionmetrics.Metrics.ObserveWebhook(ctx, d.filters, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
 				case *webhookutil.ErrWebhookRejection:
 					rejected = true
 					admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionNoError, int(err.Status.ErrStatus.Code))
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
+					admissionmetrics.Metrics.ObserveWebhook(ctx, d.filters, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", int(err.Status.ErrStatus.Code))
 				default:
 					rejected = true
 					admissionmetrics.Metrics.ObserveWebhookRejection(ctx, hook.Name, "validating", string(versionedAttr.Attributes.GetOperation()), admissionmetrics.WebhookRejectionAPIServerInternalError, 0)
-					admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 0)
+					admissionmetrics.Metrics.ObserveWebhook(ctx, d.filters, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 0)
 				}
 			} else {
-				admissionmetrics.Metrics.ObserveWebhook(ctx, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 200)
+				admissionmetrics.Metrics.ObserveWebhook(ctx, d.filters, hook.Name, time.Since(t), rejected, versionedAttr.Attributes, "validating", 200)
 				return
 			}
 

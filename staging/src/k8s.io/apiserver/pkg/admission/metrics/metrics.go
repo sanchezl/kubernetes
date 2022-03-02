@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"k8s.io/apiserver/pkg/admission"
+	"k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission"
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
 )
@@ -231,13 +232,13 @@ func (m *AdmissionMetrics) ObserveAdmissionController(ctx context.Context, elaps
 }
 
 // ObserveWebhook records admission related metrics for a admission webhook.
-func (m *AdmissionMetrics) ObserveWebhook(ctx context.Context, name string, elapsed time.Duration, rejected bool, attr admission.Attributes, stepType string, code int) {
+func (m *AdmissionMetrics) ObserveWebhook(ctx context.Context, filter []webhookadmission.Rule, name string, elapsed time.Duration, rejected bool, attr admission.Attributes, stepType string, code int) {
 	// We truncate codes greater than 600 to keep the cardinality bounded.
 	if code > 600 {
 		code = 600
 	}
 	m.webhookRequest.WithContext(ctx).WithLabelValues(name, stepType, string(attr.GetOperation()), strconv.Itoa(code), strconv.FormatBool(rejected)).Inc()
-	m.webhook.observe(ctx, elapsed, name, stepType, string(attr.GetOperation()), strconv.FormatBool(rejected), attr.GetResource().Group, attr.GetResource().Version, attr.GetResource().Resource, attr.GetSubresource())
+	m.webhook.observe(ctx, elapsed, append([]string{name, stepType, string(attr.GetOperation()), strconv.FormatBool(rejected)}, resourceLabels(filter, attr)...)...)
 }
 
 // ObserveWebhookRejection records admission related metrics for an admission webhook rejection.
