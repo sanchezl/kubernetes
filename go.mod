@@ -289,3 +289,5 @@ replace (
 	k8s.io/sample-cli-plugin => ./staging/src/k8s.io/sample-cli-plugin
 	k8s.io/sample-controller => ./staging/src/k8s.io/sample-controller
 )
+
+replace github.com/danwinship/knftables => sigs.k8s.io/knftables v0.0.13
